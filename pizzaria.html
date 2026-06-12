@@ -115,6 +115,11 @@
     } catch(e){ return []; }
   };
 
+  // Acesso síncrono ao cache (sem await)
+  window._getCached = function(dateKey) {
+    return localCache[dateKey] || null;
+  };
+
   // Firebase pronto — libera o botão imediatamente
   setBtnState(true);
   setStatus('☁️ Pronto','#1D9E75');
@@ -531,31 +536,56 @@ async function initHome() {
   const td = todayStr();
   const box = document.getElementById('home-status-box');
   const btn = document.getElementById('btn-abrir');
-  // _load usa cache local — resposta instantânea se já acessou antes
-  const data = await window._load(td);
-  if(data) {
-    box.style.display = 'block';
-    box.className = 'home-status-box';
-    box.innerHTML = `✅ Já existe um relatório para hoje (${fmtDate(td)}). Clicando em abrir você continua editando.`;
-    btn.textContent = '📋 Continuar Relatório de Hoje';
-  } else {
-    box.style.display = 'block';
-    box.className = 'home-status-box warn';
-    box.innerHTML = `📋 Nenhum relatório para hoje (${fmtDate(td)}). Toque para criar.`;
-    btn.textContent = '📋 Abrir Relatório de Hoje';
+
+  // Verifica cache local primeiro — instantâneo
+  const cached = window._getCached ? window._getCached(td) : null;
+  function updateUI(hasData) {
+    if(hasData) {
+      box.style.display = 'block';
+      box.className = 'home-status-box';
+      box.innerHTML = `✅ Já existe um relatório para hoje (${fmtDate(td)}). Clicando em abrir você continua editando.`;
+      btn.textContent = '📋 Continuar Relatório de Hoje';
+    } else {
+      box.style.display = 'block';
+      box.className = 'home-status-box warn';
+      box.innerHTML = `📋 Nenhum relatório para hoje (${fmtDate(td)}). Toque para criar.`;
+      btn.textContent = '📋 Abrir Relatório de Hoje';
+    }
+  }
+
+  // Mostra estado do cache imediatamente
+  updateUI(!!cached);
+
+  // Atualiza do Firebase em background
+  if(window._load) {
+    window._load(td).then(data => updateUI(!!data));
   }
 }
 
 async function abrirRelatorio() {
   currentDate = todayStr();
   document.getElementById('hdr-right').textContent = fmtDate(currentDate);
-  const data = await window._load(currentDate);
-  state = data ? JSON.parse(JSON.stringify(data)) : emptyState();
+
+  // Abre a página IMEDIATAMENTE com estado vazio ou cache
+  const cached = window._getCached ? window._getCached(currentDate) : null;
+  state = cached ? JSON.parse(JSON.stringify(cached)) : emptyState();
   document.getElementById('cx-ini').value = state.cxIni||'';
   document.getElementById('cx-fin').value = state.cxFin||'';
   render();
   showPage('page-rel');
   switchTab('anotar');
+
+  // Carrega do Firebase em background e atualiza se vier dado diferente
+  if(window._load) {
+    window._load(currentDate).then(data => {
+      if(data) {
+        state = JSON.parse(JSON.stringify(data));
+        document.getElementById('cx-ini').value = state.cxIni||'';
+        document.getElementById('cx-fin').value = state.cxFin||'';
+        render();
+      }
+    });
+  }
 }
 
 function irHome() {
